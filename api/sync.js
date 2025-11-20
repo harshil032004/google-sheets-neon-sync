@@ -1,5 +1,10 @@
 import { Pool } from 'pg';
 
+const pool = new Pool({
+  connectionString: process.env.NEON_DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Only POST allowed' });
@@ -7,15 +12,12 @@ export default async function handler(req, res) {
 
   const { rows } = req.body;
   if (!rows || !Array.isArray(rows)) {
-    return res.status(400).json({ error: 'Invalid payload' });
+    return res.status(400).json({ error: 'Invalid payload “rows” missing' });
   }
 
-  const client = new Pool({
-    connectionString: process.env.NEON_DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
-  });
-
   try {
+    const client = await pool.connect();
+
     for (const row of rows) {
       const columns = Object.keys(row);
       const values = Object.values(row);
@@ -23,17 +25,18 @@ export default async function handler(req, res) {
       const columnList = columns.map(c => `"${c}"`).join(', ');
       const paramList = values.map((_, i) => `$${i + 1}`).join(', ');
 
-      // Upsert using UID
-      const updateList = columns
-        .filter(c => c !== 'UID')
-        .map((c, i) => `"${c}" = EXCLUDED."${c}"`)
+      // Filter out UID to avoid breaking UPSERT
+      const updateCols = columns.filter(c => c !== "UID");
+
+      const updateList = updateCols
+        .map(c => `"${c}" = EXCLUDED."${c}"`)
         .join(', ');
 
       const sql = `
-        INSERT INTO database (${columnList})
+        INSERT INTO "charging" (${columnList})
         VALUES (${paramList})
         ON CONFLICT ("UID")
-        DO UPDATE SET ${updateList};
+        ${updateList ? `DO UPDATE SET ${updateList}` : `DO NOTHING`};
       `;
 
       await client.query(sql, values);
@@ -41,9 +44,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({ success: true });
   } catch (err) {
-    console.error(err);
+    console.error("SYNC ERROR:", err);
     res.status(500).json({ error: err.message });
-  } finally {
-    client.end();
   }
 }
