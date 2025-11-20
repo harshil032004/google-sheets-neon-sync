@@ -1,9 +1,5 @@
-import { Pool } from 'pg';
-
-const pool = new Pool({
-  connectionString: process.env.NEON_DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+import pkg from 'pg';
+const { Pool } = pkg;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -12,12 +8,15 @@ export default async function handler(req, res) {
 
   const { rows } = req.body;
   if (!rows || !Array.isArray(rows)) {
-    return res.status(400).json({ error: 'Invalid payload “rows” missing' });
+    return res.status(400).json({ error: 'Invalid payload' });
   }
 
-  try {
-    const client = await pool.connect();
+  const client = new Pool({
+    connectionString: process.env.NEON_DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
 
+  try {
     for (const row of rows) {
       const columns = Object.keys(row);
       const values = Object.values(row);
@@ -25,18 +24,17 @@ export default async function handler(req, res) {
       const columnList = columns.map(c => `"${c}"`).join(', ');
       const paramList = values.map((_, i) => `$${i + 1}`).join(', ');
 
-      // Filter out UID to avoid breaking UPSERT
-      const updateCols = columns.filter(c => c !== "UID");
-
-      const updateList = updateCols
+      // UPSERT using UID
+      const updateList = columns
+        .filter(c => c !== 'UID') // do not update UID itself
         .map(c => `"${c}" = EXCLUDED."${c}"`)
         .join(', ');
 
       const sql = `
-        INSERT INTO "charging" (${columnList})
+        INSERT INTO charging (${columnList})
         VALUES (${paramList})
         ON CONFLICT ("UID")
-        ${updateList ? `DO UPDATE SET ${updateList}` : `DO NOTHING`};
+        DO UPDATE SET ${updateList};
       `;
 
       await client.query(sql, values);
@@ -44,7 +42,9 @@ export default async function handler(req, res) {
 
     res.status(200).json({ success: true });
   } catch (err) {
-    console.error("SYNC ERROR:", err);
+    console.error(err);
     res.status(500).json({ error: err.message });
+  } finally {
+    client.end();
   }
 }
