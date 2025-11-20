@@ -24,16 +24,15 @@ export default async function handler(req, res) {
       const columnList = columns.map(c => `"${c}"`).join(', ');
       const paramList = values.map((_, i) => `$${i + 1}`).join(', ');
 
-      // UPSERT using UID
       const updateList = columns
-        .filter(c => c !== 'UID') // do not update UID itself
+        .filter(c => c !== 'uid')   // use lowercase
         .map(c => `"${c}" = EXCLUDED."${c}"`)
         .join(', ');
 
       const sql = `
         INSERT INTO charging (${columnList})
         VALUES (${paramList})
-        ON CONFLICT ("UID")
+        ON CONFLICT ("uid")
         DO UPDATE SET ${updateList};
       `;
 
