@@ -24,8 +24,9 @@ export default async function handler(req, res) {
       const columnList = columns.map(c => `"${c}"`).join(', ');
       const paramList = values.map((_, i) => `$${i + 1}`).join(', ');
 
+      // When updating, do not update the primary key (uid)
       const updateList = columns
-        .filter(c => c !== 'uid')   // use lowercase
+        .filter(c => c !== 'uid')
         .map(c => `"${c}" = EXCLUDED."${c}"`)
         .join(', ');
 
